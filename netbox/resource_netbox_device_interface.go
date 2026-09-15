@@ -338,6 +338,26 @@ func resourceNetboxDeviceInterfaceUpdate(ctx context.Context, d *schema.Resource
 	if d.HasChange("primary_mac_address_id") {
 		primaryMac := int64(d.Get("primary_mac_address_id").(int))
 		data.PrimaryMacAddress = &primaryMac
+	} else {
+		// WritableInterface.PrimaryMacAddress is the one conditional field in this
+		// struct without `omitempty`, so a nil pointer marshals as an explicit
+		// null and the PATCH clears the interface's primary MAC. Every other
+		// field below is simply absent when unchanged; this one is not. Updating
+		// only the description would therefore drop the MAC, silently and without
+		// appearing in the plan.
+		//
+		// The value cannot be taken from state: primary_mac_address_id is owned by
+		// netbox_device_interface_primary_mac_address, so this resource holds 0 for
+		// it whenever that resource is what set it. Read the current value and
+		// carry it through unchanged.
+		readParams := dcim.NewDcimInterfacesReadParams().WithID(id)
+		res, err := api.Dcim.DcimInterfacesRead(readParams, nil)
+		if err != nil {
+			return diag.FromErr(err)
+		}
+		if current := res.GetPayload().PrimaryMacAddress; current != nil {
+			data.PrimaryMacAddress = &current.ID
+		}
 	}
 	if d.HasChange("vrf_id") {
 		data.Vrf = getOptionalInt(d, "vrf_id")
